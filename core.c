@@ -31,55 +31,62 @@ static struct {
 } flag = { .z = true };
 
 static struct {
-    union {
-        struct {
-            uint8_t address_lo;
-            uint8_t address_hi;
-        };
-        uint16_t address;
-    };
+	union {
+		struct {
+			uint8_t address_lo;
+			uint8_t address_hi;
+		};
+		uint16_t address;
+	};
 	uint8_t data;
-    bool write;
-	enum { READ, WRITE } rw;
-} bus = { .address_lo = 0xFF };
+} transient;
 
-static uint8_t transient_data;
+static enum {
+	NONE = 0x0000,
+	NMI = 0xFFFA,
+	RESET = 0xFFFC,
+	IRQ = 0xFFFE
+} interrupt_vector = RESET;
+
 static uint8_t ram[0x800]; // 2k
 static uint8_t *rom;
 
-inline static void access_memory(void) {
-	if (!bus.write) {
-		if (bus.address > 0x7FFF) {
-			uint16_t const prg_mask = 0x3FFF; // 1x 16k PRG bank
-			bus.data = rom[bus.address & prg_mask]; // mapper_read(bus.address);
-			printf("  memory_read  %04X -> PRG %04X -> %02X\n", bus.address, bus.address & prg_mask, bus.data);
-			return;
-		}
-		if (bus.address < 0x2000) {
-			bus.data = ram[bus.address & 0x07FF];
-			printf("  memory_read  %04X -> RAM %04X -> %02X\n", bus.address, bus.address & 0x07FF, bus.data);
-			return;
-		}
-		if (bus.address < 0x4000) {
-			bus.data = 0x00; // ppu_read(bus.address & 0x0007)
-			printf("  memory_read  %04X -> \033[1;34mPPU\033[0m %X -> %02X\n", bus.address, bus.address & 0x0007, bus.data);
-			return;
-		}
-		printf(" \033[1;41m memory_read  %04X ERR \033[0m\n", bus.address);
-	} else {
-		bus.write = false;
-		if (bus.address < 0x2000) {
-			ram[bus.address & 0x07FF] = bus.data;
-			printf("  memory_write %04X -> RAM %04X -> %02X\n", bus.address, bus.address & 0x07FF, bus.data);
-			return;
-		}
-		if (bus.address < 0x4000) {
-			// ppu_write(bus.address & 0x0007, data);
-			printf("  memory_write %04X -> \033[1;34mPPU\033[0m %X -> %02X\n", bus.address, bus.address & 0x0007, bus.data);
-			return;
-		}
-		printf(" \033[1;41m memory_write %04X -> %02X ERR\033[0m\n", bus.address, bus.data);
+static uint8_t read_memory(uint16_t address) {
+	if (address > 0x7FFF) {
+		uint16_t const prg_mask = 0x3FFF; // 1x 16k PRG bank
+		uint8_t data = rom[address & prg_mask]; // mapper_read(address);
+		printf("  memory_read  %04X -> PRG %04X -> %02X\n", address, address & prg_mask, data);
+		return data;
 	}
+	if (address < 0x2000) {
+		uint8_t data = ram[address & 0x07FF];
+		printf("  memory_read  %04X -> RAM %03X -> %02X\n", address, address & 0x07FF, data);
+		return data;
+	}
+	if (address < 0x4000) {
+		uint8_t data = 0x00; // ppu_read(address & 0x0007)
+		printf("  memory_read  %04X -> \033[1;34mPPU\033[0m %X -> %02X\n", address, address & 0x0007, data);
+		return data;
+	}
+	printf(" \033[1;41m memory_read  %04X ERR \033[0m\n", address);
+	exit(EXIT_FAILURE);
+	return 0x00;
+}
+
+static void write_memory(uint16_t address, uint8_t data) {
+	if (address < 0x2000) {
+		ram[address & 0x07FF] = data;
+		printf("  memory_write %04X -> RAM %03X -> %02X\n", address, address & 0x07FF, data);
+		return;
+	}
+	if (address < 0x4000) {
+		// ppu_write(address & 0x0007, data);
+		printf("  memory_write %04X -> \033[1;34mPPU\033[0m %X -> %02X\n", address, address & 0x0007, data);
+		return;
+	}
+	printf(" \033[1;41m memory_write %04X -> %02X ERR\033[0m\n", address, data);
+	exit(EXIT_FAILURE);
+	return;
 }
 
 typedef void (*instruction_step)(void);
@@ -122,34 +129,38 @@ static void terminate(void) {
 static instruction const set[256] = {
 	// Illegal/unimplemented opcodes
 	[0 ... 255] = { terminate },
+
 	// SEI_implied
-	[0x78] = { set_flag_i, decode_opcode },
+	[0x78] = { fetch_and_waste, set_flag_i },
 	// CLD_implied
-	[0xD8] = { clear_flag_d, decode_opcode },
+	[0xD8] = { fetch_and_waste, clear_flag_d },
 	// TXS_implied
-	[0x9A] = { transfer_reg_x_to_reg_s, decode_opcode },
+	[0x9A] = { fetch_and_waste, transfer_reg_x_to_reg_s },
+
 	// LDA_immediate
-	[0xA9] = { put_data_into_reg_a, decode_opcode },
+	[0xA9] = { fetch_param_data, put_data_into_reg_a },
 	// LDX_immediate
-	[0xA2] = { put_data_into_reg_x, decode_opcode },
+	[0xA2] = { fetch_param_data, put_data_into_reg_x },
 	// AND_immediate
-	[0x29] = { bitwise_and, decode_opcode },
+	[0x29] = { fetch_param_data, bitwise_and },
+
 	// BEQ_relative
-	[0xF0] = { check_if_flag_z_is_set, branch_same_page, branch_any_page, decode_opcode },
-	// STA_absolute
-	[0x8D] = { load_absolute_address, store_reg_a_at_absolute_address, wrap_up_absolute_store, decode_opcode },
-	// LDA_absolute
-	[0xAD] = { load_absolute_address, load_data_from_absolute_address, put_data_into_reg_a, decode_opcode },
+	[0xF0] = { fetch_param_data, check_flag_z_set, branch_same_page, branch_any_page },
+
+	// STA_absolute - W
+	[0x8D] = { fetch_param_address_lo, fetch_param_address_hi, store_reg_a, fetch_opcode },
+	// LDA_absolute - R
+	[0xAD] = { fetch_param_address_lo, fetch_param_address_hi, load_data, put_data_into_reg_a },
+
 	// BRK_stack
-	[0x00] = { push_pch, push_pcl, push_flags, load_interrupt_vector_lo, load_interrupt_vector_hi, put_interrupt_address_into_pc, decode_opcode }
+	[0x00] = { fetch_and_waste, push_pch, push_pcl, push_status, load_interrupt_vector_lo, load_interrupt_vector_hi, fetch_opcode }
 };
 #pragma GCC diagnostic pop
 
 static instruction_step const *current_step = set[0x00];
 
 void cpu_exec(void) {
-	access_memory();
-	printf(">> A %02X, X %02X, Y %02X, S %02X, P %02X, PC %04X, %c%cx%c%c%c%c%c #%03llu\t",
+	printf(">> A %02X, X %02X, Y %02X, S %02X, P %02X, PC %04X, %c%c.%c%c%c%c%c #%06llu ",
 		reg.a, reg.x, reg.y, reg.s, group_status_flags(), reg.pc,
 		flag.n ? 'n' : '.',
 		flag.v ? 'v' : '.',
@@ -164,6 +175,7 @@ void cpu_exec(void) {
 	(*current_step++)();
 }
 
+// basic crc32 calculation with inverted polynomial and without lookup table
 static uint32_t calculate_crc32(uint8_t const *data, size_t length) {
 	uint32_t crc = 0xFFFFFFFF;
 
@@ -239,8 +251,8 @@ int main(int argc, char *argv[]) {
 	if (!rom)
 		return EXIT_FAILURE;
 
-	fprintf(stdout, "Emulation is on!\n");
-	fprintf(stdout, "crc32 %08X\n\n", calculate_crc32(rom, 24576));
+	fprintf(stdout, "Emulation is afoot!\n");
+	fprintf(stdout, "ROM CRC32: %08X\n\n", calculate_crc32(rom, 24576));
 
 	while (step_counter < 48)
 		cpu_exec();
