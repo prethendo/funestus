@@ -64,7 +64,7 @@ static uint8_t read_memory(uint16_t address) {
 		return data;
 	}
 	if (address < 0x4000) {
-		uint8_t data = 0x00; // ppu_read(address & 0x0007)
+		uint8_t data = 0x80; // ppu_read(address & 0x0007)
 		printf("  memory_read  %04X -> \033[1;34mPPU\033[0m %X -> %02X\n", address, address & 0x0007, data);
 		return data;
 	}
@@ -130,28 +130,90 @@ static instruction const set[256] = {
 	// Illegal/unimplemented opcodes
 	[0 ... 255] = { terminate },
 
+	// LSR_accumulator
+	[0x4A] = { fetch_and_waste, shift_right_reg_a },
+
 	// SEI_implied
 	[0x78] = { fetch_and_waste, set_flag_i },
+	// CLC_implied
+	[0x18] = { fetch_and_waste, clear_flag_c },
 	// CLD_implied
 	[0xD8] = { fetch_and_waste, clear_flag_d },
+	// INY_implied
+	[0xC8] = { fetch_and_waste, increment_reg_y },
+	// DEX_implied
+	[0xCA] = { fetch_and_waste, decrement_reg_x },
+	// DEY_implied
+	[0x88] = { fetch_and_waste, decrement_reg_y },
+	// TAX_implied
+	[0xAA] = { fetch_and_waste, transfer_reg_a_to_reg_x },
+	// TAY_implied
+	[0xA8] = { fetch_and_waste, transfer_reg_a_to_reg_y },
+	// TXA_implied
+	[0x8A] = { fetch_and_waste, transfer_reg_x_to_reg_a },
 	// TXS_implied
 	[0x9A] = { fetch_and_waste, transfer_reg_x_to_reg_s },
+	// TYA_implied
+	[0x98] = { fetch_and_waste, transfer_reg_y_to_reg_a },
 
 	// LDA_immediate
 	[0xA9] = { fetch_param_data, put_data_into_reg_a },
 	// LDX_immediate
 	[0xA2] = { fetch_param_data, put_data_into_reg_x },
+	// LDY_immediate
+	[0xA0] = { fetch_param_data, put_data_into_reg_y },
+	// ADC_immediate
+	[0x69] = { fetch_param_data, add_with_carry },
 	// AND_immediate
 	[0x29] = { fetch_param_data, bitwise_and },
+	// EOR_immediate
+	[0x49] = { fetch_param_data, bitwise_xor },
+	// CMP_immediate
+	[0xC9] = { fetch_param_data, compare_reg_a },
 
 	// BEQ_relative
-	[0xF0] = { fetch_param_data, check_flag_z_set, branch_same_page, branch_any_page },
+	[0xF0] = { fetch_param_data, skip_on_flag_z_clear, branch_same_page, branch_any_page },
+	// BNE_relative
+	[0xD0] = { fetch_param_data, skip_on_flag_z_set, branch_same_page, branch_any_page },
+	// BPL_relative
+	[0x10] = { fetch_param_data, skip_on_flag_n_set, branch_same_page, branch_any_page },
 
-	// STA_absolute - W
+	// STA_zeropage W
+	[0x85] = { fetch_param_address_zp, store_reg_a, fetch_opcode },
+	// STY_zeropage W
+	[0x84] = { fetch_param_address_zp, store_reg_y, fetch_opcode },
+	// LDA_zeropage R
+	[0xA5] = { fetch_param_address_zp, load_data, put_data_into_reg_a },
+	// LDX_zeropage R
+	[0xA6] = { fetch_param_address_zp, load_data, put_data_into_reg_x },
+	// AND_zeropage R
+	[0x25] = { fetch_param_address_zp, load_data, bitwise_and },
+	// EOR_zeropage R
+	[0x45] = { fetch_param_address_zp, load_data, bitwise_xor },
+	// ADC_zeropage R
+	[0x65] = { fetch_param_address_zp, load_data, add_with_carry },
+	// DEC_zeropage M
+	[0xC6] = { fetch_param_address_zp, load_data, decrement_data, store_data, fetch_opcode },
+	// ROR_zeropage M
+	[0x66] = { fetch_param_address_zp, load_data, rotate_right_data, store_data, fetch_opcode },
+
+	// STA_absolute W
 	[0x8D] = { fetch_param_address_lo, fetch_param_address_hi, store_reg_a, fetch_opcode },
-	// LDA_absolute - R
+	// LDA_absolute R
 	[0xAD] = { fetch_param_address_lo, fetch_param_address_hi, load_data, put_data_into_reg_a },
+	// JSR_absolute
+	[0x20] = { fetch_param_address_lo, fetch_and_waste, push_pch, push_pcl, fetch_param_address_hi, branch_any_page },
+	// JMP_absolute
+	[0x4C] = { fetch_param_address_lo, fetch_param_address_hi, branch_any_page },
 
+	// STA_indirectY
+	[0x91] = { fetch_param_address_zp, load_address_lo, load_address_hi, add_reg_y_to_address, store_reg_a, fetch_opcode },
+	// PHA_stack
+	[0x48] = { fetch_and_waste, push_reg_a, fetch_opcode },
+	// PLA_stack
+	[0x68] = { fetch_and_waste, fetch_and_waste, pull_data, put_data_into_reg_a },
+	// RTS_stack
+	[0x60] = { fetch_param_data, fetch_and_waste, pull_pcl, pull_pch, fetch_param_data, fetch_opcode },
 	// BRK_stack
 	[0x00] = { fetch_and_waste, push_pch, push_pcl, push_status, load_interrupt_vector_lo, load_interrupt_vector_hi, fetch_opcode }
 };
@@ -254,7 +316,7 @@ int main(int argc, char *argv[]) {
 	fprintf(stdout, "Emulation is afoot!\n");
 	fprintf(stdout, "ROM CRC32: %08X\n\n", calculate_crc32(rom, 24576));
 
-	while (step_counter < 48)
+	while (step_counter < 1000000)
 		cpu_exec();
 
 	free(rom);
