@@ -4,6 +4,7 @@ static void fetch_opcode(void) {
 	uint8_t next = read_memory(reg.pc++);
 	if (interrupt_vector) {
 		next = 0x00;
+		interrupt_vector = NONE
 		puts("Interrupt requested!");
 		getchar();
 	}
@@ -318,7 +319,7 @@ static void push_status(void) {
 		read_memory(0x100 | reg.s--);
 	else
 		write_memory(0x100 | reg.s--, group_status_flags());
-	if (interrupt_vector)
+	if (interrupt_vector) // when reset??
 		flag.i = true;
 }
 
