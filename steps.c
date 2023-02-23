@@ -4,8 +4,7 @@ static void fetch_opcode(void) {
 	uint8_t next = read_memory(reg.pc++);
 	if (interrupt_vector) {
 		next = 0x00;
-		interrupt_vector = NONE
-		puts("Interrupt requested!");
+		printf("\n\033[1;42m CPU interrupt \033[0m\n");
 		getchar();
 	}
 	current_step = set[next];

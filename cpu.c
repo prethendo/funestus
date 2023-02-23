@@ -84,6 +84,11 @@ static void write_memory(uint16_t address, uint8_t data) {
 		printf("  memory_write %04X -> \033[1;34mPPU\033[0m %X -> %02X\n", address, address & 0x0007, data);
 		return;
 	}
+	if (address == 0x4014) {
+		printf("  memory_write %04X -> \033[1;35mOAMDMA\033[0m ---> %02X\n", address, data);
+		// cpu-ppu dma
+		return;
+	}
 	printf(" \033[1;41m memory_write %04X -> %02X ERR\033[0m\n", address, data);
 	exit(EXIT_FAILURE);
 	return;
@@ -235,5 +240,9 @@ void cpu_exec(void) {
 	);
 	step_counter++;
 	(*current_step++)();
+}
+
+void cpu_interrupt(void) {
+	interrupt_vector = NMI;
 }
 
