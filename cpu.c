@@ -4,7 +4,8 @@
 #include <stdbool.h>
 #include "debug.h"
 
-extern void ppu_write(uint16_t address, uint8_t data);
+extern void ppu_write(int ppu_register, uint8_t data);
+extern uint8_t ppu_read(int ppu_register);
 
 static struct {
 	uint8_t a;
@@ -64,9 +65,13 @@ static uint8_t read_memory(uint16_t address) {
 		return data;
 	}
 	if (address < 0x4000) {
-		uint8_t data = 0x80; // ppu_read(address & 0x0007)
+		uint8_t data = ppu_read(address & 0x0007);
 		printf("  memory_read  %04X -> \033[1;34mPPU\033[0m %X -> %02X\n", address, address & 0x0007, data);
 		return data;
+	}
+	if (address == 0x4016 || address == 0x4017) {
+		printf("  read_memory  %04X -> \033[1;45mCTRL\033[0m %04X -> %02X\n", address, address & 0x3FFF, prg[address & 0x3FFF]);
+		return 0x00;
 	}
 	printf(" \033[1;41m memory_read  %04X ERR \033[0m\n", address);
 	exit(EXIT_FAILURE);
@@ -87,6 +92,10 @@ static void write_memory(uint16_t address, uint8_t data) {
 	if (address == 0x4014) {
 		printf("  memory_write %04X -> \033[1;35mOAMDMA\033[0m ---> %02X\n", address, data);
 		// cpu-ppu dma
+		return;
+	}
+	if (address >= 0x4000 && address <= 0x4017) {
+		printf("  write_memory %04X -> \033[1;45mCTRL\033[0m %04X -> %02X\n", address, address & 0x000F, data);
 		return;
 	}
 	printf(" \033[1;41m memory_write %04X -> %02X ERR\033[0m\n", address, data);

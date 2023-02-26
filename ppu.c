@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 static int pixel = 0;
 static int scanline = 0;
@@ -7,13 +8,12 @@ static int scanline = 0;
 static uint8_t vram[2048]; // 0x800
 static uint8_t frame_buffer[256 * 240];
 
+static enum { FIRST, SECOND } write_order;
+static uint16_t ppu_address;
+
 extern uint8_t *chr; // pattern tables
 extern void cpu_interrupt(void);
 extern void display_frame_buffer(uint8_t const *internal_frame_buffer);
-
-void ppu_write(uint16_t address, uint8_t data) {
-	printf("PPU write: %04X -> %02X\n", address, data);
-}
 
 /* https://www.nesdev.org/wiki/PPU_pattern_tables
 DCBA98 76543210
@@ -31,30 +31,80 @@ static struct {
 		struct {
 			uint16_t fine_y_offset: 3;
 			uint16_t bit_plane: 1;
-			uint16_t tile_column: 4;
-			uint16_t tile_row: 4;
+			uint16_t column: 4;
+			uint16_t row: 4;
 			uint16_t half_of_chr: 1;
 			uint16_t zero: 3;
 		};
 		uint16_t full;
 	};
-} ppu_address = { .zero = 0, .half_of_chr = 1 };
+} tile;
+
+static struct {
+	bool nmi_enabled; // Generate an NMI at the start of the vblank interval
+	enum { HORIZONTAL = 1, VERTICAL = 32 } address_increment;
+} ctrl;
+
+static struct {
+	bool vblank; // Vertical blank has started - Set at dot 1 of line 241 / Cleared after reading $2002 and at dot 1 of the pre-render scanline.
+} status;
+
+uint8_t ppu_read(int ppu_register) {
+	// PPUSTATUS
+	if (ppu_register == 2) {
+		uint8_t vblank = status.vblank;
+		printf("PPU read:  %04X -> %02X\n", ppu_register, vblank);
+		status.vblank = false;
+		write_order = FIRST;
+		if (vblank)
+			return 0x80;
+	}
+	return 0x00;
+}
+
+void ppu_write(int ppu_register, uint8_t data) {
+	printf("PPU write: %04X -> %02X\n", ppu_register, data);
+	// PPUCTRL
+	if (ppu_register == 0) {
+		ctrl.nmi_enabled = (data & 0x80);
+		tile.half_of_chr = (data & 0x10) >> 4;
+		//sprite_pattern_table_address = (data & 0x08) >> 3;
+		ctrl.address_increment = (data & 0x04) ? VERTICAL : HORIZONTAL;
+		//base_nametable_address = (data & 0x03);
+		return;
+	}
+	// PPUADDR
+	if (ppu_register == 6) {
+		if (write_order == FIRST)
+			ppu_address = data << 8;
+		else // write_order == SECOND
+			ppu_address |= data;
+		write_order = !write_order;
+		return;
+	}
+	// PPUDATA
+	if (ppu_register == 7) {
+		vram[ppu_address & 0x07FF] = data; // vram has size 2k == 0x800
+		ppu_address += ctrl.address_increment;
+		return;
+	}
+}
 
 static void draw_pixel(void) {
 	// this calculation finds the tile index inside the nametable, based on the scanline and the current pixel
 	int tile_index = scanline / 8 * 32 + (pixel % 256 / 8);
 	int tile_pos = vram[tile_index]; // position in the pattern table (chr)
 
-	ppu_address.tile_row = (tile_pos & 0xF0) >> 4; // upper nibble of tile_pos
-	ppu_address.tile_column = tile_pos & 0x0F; // lower nibble of tile_pos
+	tile.row = (tile_pos & 0xF0) >> 4; // upper nibble of tile_pos
+	tile.column = tile_pos & 0x0F; // lower nibble of tile_pos
 
-	ppu_address.fine_y_offset = scanline % 8;
+	tile.fine_y_offset = scanline % 8;
 
-	ppu_address.bit_plane = 0;
-	int a = chr[ppu_address.full] & (0x80 >> pixel % 8);
+	tile.bit_plane = 0;
+	int a = chr[tile.full] & (0x80 >> pixel % 8);
 
-	ppu_address.bit_plane = 1;
-	int b = chr[ppu_address.full] & (0x80 >> pixel % 8);
+	tile.bit_plane = 1;
+	int b = chr[tile.full] & (0x80 >> pixel % 8);
 
 	frame_buffer[scanline * 256 + pixel] = (a ? 1 : 0) + (b ? 2 : 0);
 }
@@ -92,13 +142,18 @@ static void run_post_render_scanline(void) {
 }
 
 static void run_vblank(void) {
-	if (scanline == 241 && pixel == 1) // send a signal to CPU
-		cpu_interrupt();
+	if (scanline == 241 && pixel == 1) { // send a signal to CPU
+		if (ctrl.nmi_enabled)
+			cpu_interrupt();
+		status.vblank = true;
+	}
 	if (pixel++ == 340)
 		scanline++, pixel = 0;
 }
 
 static void run_pre_render_scanline(void) {
+	if (pixel == 1)
+		status.vblank = false;
 	if (pixel++ == 340)
 		scanline = pixel = 0;
 }

@@ -36,10 +36,10 @@ void display_frame_buffer(uint8_t const *internal_frame_buffer) {
 		//uint8_t color = internal_frame_buffer[i] * 21;
 		uint8_t color = 0x22;
 		switch (internal_frame_buffer[i]) {
-			case 0: color = 0x20; break;
-			case 1: color = 0x10; break;
-			case 2: color = 0x00; break;
-			case 3: color = 0x3F; break;
+			case 0: color = 0x3F; break;
+			case 1: color = 0x00; break;
+			case 2: color = 0x10; break;
+			case 3: color = 0x20; break;
 		}
 		frame_buffer[i] = nes_color[color];
 	}
