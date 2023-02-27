@@ -90,8 +90,8 @@ static void write_memory(uint16_t address, uint8_t data) {
 		return;
 	}
 	if (address == 0x4014) {
-		printf("  memory_write %04X -> \033[1;35mOAMDMA\033[0m ---> %02X\n", address, data);
 		// cpu-ppu dma
+		printf("  memory_write %04X -> \033[1;35mOAMDMA\033[0m ---> %02X\n", address, data);
 		return;
 	}
 	if (address >= 0x4000 && address <= 0x4017) {
@@ -127,6 +127,16 @@ inline static uint8_t group_status_flags(void) {
 	return p;
 }
 
+inline static void ungroup_status_flags(uint8_t p) {
+	flag.n = p & 0x80;
+	flag.v = p & 0x40;
+	// flag.b is not updated
+	flag.d = p & 0x08;
+	flag.i = p & 0x04;
+	flag.z = p & 0x02;
+	flag.c = p & 0x01;
+}
+
 #include "steps.c"
 
 static void terminate(void) {
@@ -144,15 +154,25 @@ static instruction const set[256] = {
 	// Illegal/unimplemented opcodes
 	[0 ... 255] = { terminate },
 
+	// ASL_accumulator
+	[0x0A] = { fetch_and_waste, shift_left_reg_a },
 	// LSR_accumulator
 	[0x4A] = { fetch_and_waste, shift_right_reg_a },
+	// ROL_accumulator
+	[0x2A] = { fetch_and_waste, rotate_left_reg_a },
+	// ROR_accumulator
+	[0x6A] = { fetch_and_waste, rotate_right_reg_a },
 
+	// SEC_implied
+	[0x38] = { fetch_and_waste, set_flag_c },
 	// SEI_implied
 	[0x78] = { fetch_and_waste, set_flag_i },
 	// CLC_implied
 	[0x18] = { fetch_and_waste, clear_flag_c },
 	// CLD_implied
 	[0xD8] = { fetch_and_waste, clear_flag_d },
+	// INX_implied
+	[0xE8] = { fetch_and_waste, increment_reg_x },
 	// INY_implied
 	[0xC8] = { fetch_and_waste, increment_reg_y },
 	// DEX_implied
@@ -178,56 +198,156 @@ static instruction const set[256] = {
 	[0xA0] = { fetch_param_data, put_data_into_reg_y },
 	// ADC_immediate
 	[0x69] = { fetch_param_data, add_with_carry },
+	// SBC_immediate
+	[0xE9] = { fetch_param_data, subtract_with_carry },
 	// AND_immediate
 	[0x29] = { fetch_param_data, bitwise_and },
+	// ORA_immediate
+	[0x09] = { fetch_param_data, bitwise_or },
 	// EOR_immediate
 	[0x49] = { fetch_param_data, bitwise_xor },
 	// CMP_immediate
 	[0xC9] = { fetch_param_data, compare_reg_a },
+	// CPX_immediate
+	[0xE0] = { fetch_param_data, compare_reg_x },
+	// CPY_immediate
+	[0xC0] = { fetch_param_data, compare_reg_y },
 
 	// BEQ_relative
 	[0xF0] = { fetch_param_data, skip_on_flag_z_clear, branch_same_page, branch_any_page },
+	// BMI_relative
+	[0x30] = { fetch_param_data, skip_on_flag_n_clear, branch_same_page, branch_any_page },
+	// BCS_relative
+	[0xB0] = { fetch_param_data, skip_on_flag_c_clear, branch_same_page, branch_any_page },
 	// BNE_relative
 	[0xD0] = { fetch_param_data, skip_on_flag_z_set, branch_same_page, branch_any_page },
 	// BPL_relative
 	[0x10] = { fetch_param_data, skip_on_flag_n_set, branch_same_page, branch_any_page },
+	// BCC_relative
+	[0x90] = { fetch_param_data, skip_on_flag_c_set, branch_same_page, branch_any_page },
 
 	// STA_zeropage W
 	[0x85] = { fetch_param_address_zp, store_reg_a, fetch_opcode },
+	// STX_zeropage W
+	[0x86] = { fetch_param_address_zp, store_reg_x, fetch_opcode },
 	// STY_zeropage W
 	[0x84] = { fetch_param_address_zp, store_reg_y, fetch_opcode },
 	// LDA_zeropage R
 	[0xA5] = { fetch_param_address_zp, load_data, put_data_into_reg_a },
 	// LDX_zeropage R
 	[0xA6] = { fetch_param_address_zp, load_data, put_data_into_reg_x },
+	// LDY_zeropage R
+	[0xA4] = { fetch_param_address_zp, load_data, put_data_into_reg_y },
+	// CMP_zeropage R
+	[0xC5] = { fetch_param_address_zp, load_data, compare_reg_a },
+	// CPX_zeropage R
+	[0xE4] = { fetch_param_address_zp, load_data, compare_reg_x },
 	// AND_zeropage R
 	[0x25] = { fetch_param_address_zp, load_data, bitwise_and },
+	// ORA_zeropage R
+	[0x05] = { fetch_param_address_zp, load_data, bitwise_or },
 	// EOR_zeropage R
 	[0x45] = { fetch_param_address_zp, load_data, bitwise_xor },
 	// ADC_zeropage R
 	[0x65] = { fetch_param_address_zp, load_data, add_with_carry },
+	// SBC_zeropage R
+	[0xE5] = { fetch_param_address_zp, load_data, subtract_with_carry },
+	// INC_zeropage M
+	[0xE6] = { fetch_param_address_zp, load_data, increment_data, store_data, fetch_opcode },
 	// DEC_zeropage M
 	[0xC6] = { fetch_param_address_zp, load_data, decrement_data, store_data, fetch_opcode },
+	// ASL_zeropage M
+	[0x06] = { fetch_param_address_zp, load_data, shift_left_data, store_data, fetch_opcode },
+	// LSR_zeropage M
+	[0x46] = { fetch_param_address_zp, load_data, shift_right_data, store_data, fetch_opcode },
 	// ROR_zeropage M
 	[0x66] = { fetch_param_address_zp, load_data, rotate_right_data, store_data, fetch_opcode },
 
+	// STA_zeropageX W
+	[0x95] = { fetch_param_address_zp, add_reg_x_to_address_lo, store_reg_a, fetch_opcode },
+	// STY_zeropageX W
+	[0x94] = { fetch_param_address_zp, add_reg_x_to_address_lo, store_reg_y, fetch_opcode },
+	// LDA_zeropageX R
+	[0xB5] = { fetch_param_address_zp, add_reg_x_to_address_lo, load_data, put_data_into_reg_a },
+	// LDY_zeropageX R
+	[0xB4] = { fetch_param_address_zp, add_reg_x_to_address_lo, load_data, put_data_into_reg_y },
+	// CMP_zeropageX R
+	[0xD5] = { fetch_param_address_zp, add_reg_x_to_address_lo, load_data, compare_reg_a },
+	// AND_zeropageX R
+	[0x35] = { fetch_param_address_zp, add_reg_x_to_address_lo, load_data, bitwise_and },
+	// INC_zeropageX M
+	[0xF6] = { fetch_param_address_zp, add_reg_x_to_address_lo, load_data, increment_data, store_data, fetch_opcode },
+	// DEC_zeropageX M
+	[0xD6] = { fetch_param_address_zp, add_reg_x_to_address_lo, load_data, decrement_data, store_data, fetch_opcode },
+
 	// STA_absolute W
 	[0x8D] = { fetch_param_address_lo, fetch_param_address_hi, store_reg_a, fetch_opcode },
+	// STX_absolute W
+	[0x8E] = { fetch_param_address_lo, fetch_param_address_hi, store_reg_x, fetch_opcode },
+	// STY_absolute W
+	[0x8C] = { fetch_param_address_lo, fetch_param_address_hi, store_reg_y, fetch_opcode },
 	// LDA_absolute R
 	[0xAD] = { fetch_param_address_lo, fetch_param_address_hi, load_data, put_data_into_reg_a },
+	// LDX_absolute R
+	[0xAE] = { fetch_param_address_lo, fetch_param_address_hi, load_data, put_data_into_reg_x },
+	// LDY_absolute R
+	[0xAC] = { fetch_param_address_lo, fetch_param_address_hi, load_data, put_data_into_reg_y },
+	// CMP_absolute R
+	[0xCD] = { fetch_param_address_lo, fetch_param_address_hi, load_data, compare_reg_a },
+	// EOR_absolute R
+	[0x4D] = { fetch_param_address_lo, fetch_param_address_hi, load_data, bitwise_xor },
+	// ADC_absolute R
+	[0x6D] = { fetch_param_address_lo, fetch_param_address_hi, load_data, add_with_carry },
+	// INC_absolute M
+	[0xEE] = { fetch_param_address_lo, fetch_param_address_hi, load_data, increment_data, store_data, fetch_opcode },
+	// DEC_absolute M
+	[0xCE] = { fetch_param_address_lo, fetch_param_address_hi, load_data, decrement_data, store_data, fetch_opcode },
 	// JSR_absolute
 	[0x20] = { fetch_param_address_lo, fetch_and_waste, push_pch, push_pcl, fetch_param_address_hi, branch_any_page },
 	// JMP_absolute
 	[0x4C] = { fetch_param_address_lo, fetch_param_address_hi, branch_any_page },
 
-	// STA_indirectY
+	// STA_absoluteX W
+	[0x9D] = { fetch_param_address_lo, fetch_param_address_hi, add_reg_x_to_address, store_reg_a, fetch_opcode },
+	// LDA_absoluteX R
+	[0xBD] = { fetch_param_address_lo, fetch_param_address_hi_add_reg_x, add_reg_x_to_address, load_data, put_data_into_reg_a },
+	// LDY_absoluteX R
+	[0xBC] = { fetch_param_address_lo, fetch_param_address_hi_add_reg_x, add_reg_x_to_address, load_data, put_data_into_reg_y },
+	// CMP_absoluteX R
+	[0xDD] = { fetch_param_address_lo, fetch_param_address_hi_add_reg_x, add_reg_x_to_address, load_data, compare_reg_a },
+	// ADC_absoluteX R
+	[0x7D] = { fetch_param_address_lo, fetch_param_address_hi_add_reg_x, add_reg_x_to_address, load_data, add_with_carry },
+	// SBC_absoluteX R
+	[0xFD] = { fetch_param_address_lo, fetch_param_address_hi_add_reg_x, add_reg_x_to_address, load_data, subtract_with_carry },
+	// INC_absoluteX W
+	[0xFE] = { fetch_param_address_lo, fetch_param_address_hi, add_reg_x_to_address, load_data, increment_data, store_data, fetch_opcode },
+	// DEC_absoluteX W
+	[0xDE] = { fetch_param_address_lo, fetch_param_address_hi, add_reg_x_to_address, load_data, decrement_data, store_data, fetch_opcode },
+
+	// STA_absoluteY W
+	[0x99] = { fetch_param_address_lo, fetch_param_address_hi, add_reg_y_to_address, store_reg_a, fetch_opcode },
+	// LDA_absoluteY R
+	[0xB9] = { fetch_param_address_lo, fetch_param_address_hi_add_reg_y, add_reg_y_to_address, load_data, put_data_into_reg_a },
+	// CMP_absoluteY R
+	[0xD9] = { fetch_param_address_lo, fetch_param_address_hi_add_reg_y, add_reg_y_to_address, load_data, compare_reg_a },
+
+	// STA_indirectY W
 	[0x91] = { fetch_param_address_zp, load_address_lo, load_address_hi, add_reg_y_to_address, store_reg_a, fetch_opcode },
+	// LDA_indirectY R
+	[0xB1] = { fetch_param_address_zp, load_address_lo, load_address_hi_add_reg_y, add_reg_y_to_address, load_data, put_data_into_reg_a },
+
 	// PHA_stack
 	[0x48] = { fetch_and_waste, push_reg_a, fetch_opcode },
+	// PHP_stack
+	[0x08] = { fetch_and_waste, push_status, fetch_opcode },
 	// PLA_stack
 	[0x68] = { fetch_and_waste, fetch_and_waste, pull_data, put_data_into_reg_a },
+	// PLP_stack
+	[0x28] = { fetch_and_waste, fetch_and_waste, pull_data, put_data_into_status },
 	// RTS_stack
 	[0x60] = { fetch_param_data, fetch_and_waste, pull_pcl, pull_pch, fetch_param_data, fetch_opcode },
+	// RTI_stack
+	[0x40] = { fetch_param_data, fetch_and_waste, pull_status, pull_pcl, pull_pch, fetch_opcode },
 	// BRK_stack
 	[0x00] = { fetch_and_waste, push_pch, push_pcl, push_status, load_interrupt_vector_lo, load_interrupt_vector_hi, fetch_opcode }
 };
