@@ -189,6 +189,8 @@ static instruction const set[256] = {
 	[0x9A] = { fetch_and_waste, transfer_reg_x_to_reg_s },
 	// TYA_implied
 	[0x98] = { fetch_and_waste, transfer_reg_y_to_reg_a },
+	// NOP_implied
+	[0xEA] = { fetch_and_waste, fetch_opcode },
 
 	// LDA_immediate
 	[0xA9] = { fetch_param_data, put_data_into_reg_a },
@@ -219,6 +221,8 @@ static instruction const set[256] = {
 	[0x30] = { fetch_param_data, skip_on_flag_n_clear, branch_same_page, branch_any_page },
 	// BCS_relative
 	[0xB0] = { fetch_param_data, skip_on_flag_c_clear, branch_same_page, branch_any_page },
+	// BVS_relative
+	[0x70] = { fetch_param_data, skip_on_flag_v_clear, branch_same_page, branch_any_page },
 	// BNE_relative
 	[0xD0] = { fetch_param_data, skip_on_flag_z_set, branch_same_page, branch_any_page },
 	// BPL_relative
@@ -242,6 +246,8 @@ static instruction const set[256] = {
 	[0xC5] = { fetch_param_address_zp, load_data, compare_reg_a },
 	// CPX_zeropage R
 	[0xE4] = { fetch_param_address_zp, load_data, compare_reg_x },
+	// BIT_zeropage R
+	[0x24] = { fetch_param_address_zp, load_data, bit_test },
 	// AND_zeropage R
 	[0x25] = { fetch_param_address_zp, load_data, bitwise_and },
 	// ORA_zeropage R
@@ -260,6 +266,8 @@ static instruction const set[256] = {
 	[0x06] = { fetch_param_address_zp, load_data, shift_left_data, store_data, fetch_opcode },
 	// LSR_zeropage M
 	[0x46] = { fetch_param_address_zp, load_data, shift_right_data, store_data, fetch_opcode },
+	// ROL_zeropage M
+	[0x26] = { fetch_param_address_zp, load_data, rotate_left_data, store_data, fetch_opcode },
 	// ROR_zeropage M
 	[0x66] = { fetch_param_address_zp, load_data, rotate_right_data, store_data, fetch_opcode },
 
@@ -275,6 +283,10 @@ static instruction const set[256] = {
 	[0xD5] = { fetch_param_address_zp, add_reg_x_to_address_lo, load_data, compare_reg_a },
 	// AND_zeropageX R
 	[0x35] = { fetch_param_address_zp, add_reg_x_to_address_lo, load_data, bitwise_and },
+	// ADC_zeropageX R
+	[0x75] = { fetch_param_address_zp, add_reg_x_to_address_lo, load_data, add_with_carry },
+	// SBC_zeropageX R
+	[0xF5] = { fetch_param_address_zp, add_reg_x_to_address_lo, load_data, subtract_with_carry },
 	// INC_zeropageX M
 	[0xF6] = { fetch_param_address_zp, add_reg_x_to_address_lo, load_data, increment_data, store_data, fetch_opcode },
 	// DEC_zeropageX M
@@ -294,14 +306,20 @@ static instruction const set[256] = {
 	[0xAC] = { fetch_param_address_lo, fetch_param_address_hi, load_data, put_data_into_reg_y },
 	// CMP_absolute R
 	[0xCD] = { fetch_param_address_lo, fetch_param_address_hi, load_data, compare_reg_a },
+	// ORA_absolute R
+	[0x0D] = { fetch_param_address_lo, fetch_param_address_hi, load_data, bitwise_or },
 	// EOR_absolute R
 	[0x4D] = { fetch_param_address_lo, fetch_param_address_hi, load_data, bitwise_xor },
 	// ADC_absolute R
 	[0x6D] = { fetch_param_address_lo, fetch_param_address_hi, load_data, add_with_carry },
+	// SBC_absolute R
+	[0xED] = { fetch_param_address_lo, fetch_param_address_hi, load_data, subtract_with_carry },
 	// INC_absolute M
 	[0xEE] = { fetch_param_address_lo, fetch_param_address_hi, load_data, increment_data, store_data, fetch_opcode },
 	// DEC_absolute M
 	[0xCE] = { fetch_param_address_lo, fetch_param_address_hi, load_data, decrement_data, store_data, fetch_opcode },
+	// ROR_absolute M
+	[0x6E] = { fetch_param_address_lo, fetch_param_address_hi, load_data, rotate_right_data, store_data, fetch_opcode },
 	// JSR_absolute
 	[0x20] = { fetch_param_address_lo, fetch_and_waste, push_pch, push_pcl, fetch_param_address_hi, branch_any_page },
 	// JMP_absolute
@@ -313,6 +331,10 @@ static instruction const set[256] = {
 	[0xBD] = { fetch_param_address_lo, fetch_param_address_hi_add_reg_x, add_reg_x_to_address, load_data, put_data_into_reg_a },
 	// LDY_absoluteX R
 	[0xBC] = { fetch_param_address_lo, fetch_param_address_hi_add_reg_x, add_reg_x_to_address, load_data, put_data_into_reg_y },
+	// AND_absoluteX R
+	[0x3D] = { fetch_param_address_lo, fetch_param_address_hi_add_reg_x, add_reg_x_to_address, load_data, bitwise_and },
+	// ORA_absoluteX R
+	[0x1D] = { fetch_param_address_lo, fetch_param_address_hi_add_reg_x, add_reg_x_to_address, load_data, bitwise_or },
 	// CMP_absoluteX R
 	[0xDD] = { fetch_param_address_lo, fetch_param_address_hi_add_reg_x, add_reg_x_to_address, load_data, compare_reg_a },
 	// ADC_absoluteX R
@@ -328,6 +350,8 @@ static instruction const set[256] = {
 	[0x99] = { fetch_param_address_lo, fetch_param_address_hi, add_reg_y_to_address, store_reg_a, fetch_opcode },
 	// LDA_absoluteY R
 	[0xB9] = { fetch_param_address_lo, fetch_param_address_hi_add_reg_y, add_reg_y_to_address, load_data, put_data_into_reg_a },
+	// ORA_absoluteY R
+	[0x19] = { fetch_param_address_lo, fetch_param_address_hi_add_reg_y, add_reg_y_to_address, load_data, bitwise_or },
 	// CMP_absoluteY R
 	[0xD9] = { fetch_param_address_lo, fetch_param_address_hi_add_reg_y, add_reg_y_to_address, load_data, compare_reg_a },
 
@@ -335,6 +359,17 @@ static instruction const set[256] = {
 	[0x91] = { fetch_param_address_zp, load_address_lo, load_address_hi, add_reg_y_to_address, store_reg_a, fetch_opcode },
 	// LDA_indirectY R
 	[0xB1] = { fetch_param_address_zp, load_address_lo, load_address_hi_add_reg_y, add_reg_y_to_address, load_data, put_data_into_reg_a },
+	// ORA_indirectY R
+	[0x11] = { fetch_param_address_zp, load_address_lo, load_address_hi_add_reg_y, add_reg_y_to_address, load_data, bitwise_or },
+	// CMP_indirectY R
+	[0xD1] = { fetch_param_address_zp, load_address_lo, load_address_hi_add_reg_y, add_reg_y_to_address, load_data, compare_reg_a },
+	// ADC_indirectY R
+	[0x71] = { fetch_param_address_zp, load_address_lo, load_address_hi_add_reg_y, add_reg_y_to_address, load_data, add_with_carry },
+	// SBC_indirectY R
+	[0xF1] = { fetch_param_address_zp, load_address_lo, load_address_hi_add_reg_y, add_reg_y_to_address, load_data, subtract_with_carry },
+
+	// JMP_indirect
+	[0x6C] = { fetch_param_address_lo, fetch_param_address_hi, load_address_lo, load_address_hi, branch_any_page },
 
 	// PHA_stack
 	[0x48] = { fetch_and_waste, push_reg_a, fetch_opcode },

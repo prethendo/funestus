@@ -5,7 +5,6 @@ static void fetch_opcode(void) {
 	if (interrupt_vector) {
 		next = 0x00;
 		fprintf(stdout, "\n\033[1;42m CPU interrupt \033[0m\n");
-		//getchar();
 	} else {
 		reg.pc++;
 	}
@@ -174,6 +173,15 @@ static void bitwise_xor(void) {
 	fetch_opcode();
 }
 
+/***************************************************************************************************************************/
+static void bit_test(void) {
+	puts(__FUNCTION__);
+	flag.n = (transient.data & 0x80);
+	flag.v = (transient.data & 0x40);
+	flag.z = !(transient.data & reg.a);
+	fetch_opcode();
+}
+
 /******************************************************* Comparison ********************************************************/
 static void compare_reg_a(void) {
 	puts(__FUNCTION__);
@@ -294,6 +302,16 @@ static void rotate_left_reg_a(void) {
 	fetch_opcode();
 }
 
+static void rotate_left_data(void) {
+	puts(__FUNCTION__);
+	bool carry = flag.c;
+	flag.c = (transient.data & 0x80);
+	transient.data <<= 1;
+	if (carry)
+		transient.data |= 0x01;
+	read_memory(reg.pc);
+}
+
 /******************************************************** Branching ********************************************************/
 static void skip_on_flag_z_clear(void) {
 	puts(__FUNCTION__);
@@ -314,6 +332,14 @@ static void skip_on_flag_n_clear(void) {
 static void skip_on_flag_c_clear(void) {
 	puts(__FUNCTION__);
 	if (!flag.c)
+		fetch_opcode();
+	else
+		read_memory(reg.pc);
+}
+
+static void skip_on_flag_v_clear(void) {
+	puts(__FUNCTION__);
+	if (!flag.v)
 		fetch_opcode();
 	else
 		read_memory(reg.pc);
@@ -482,11 +508,12 @@ static void pull_data(void) {
 
 static void push_status(void) {
 	puts(__FUNCTION__);
+	flag.b = interrupt_vector ? true : false;
 	if (interrupt_vector == RESET)
 		read_memory(0x100 | reg.s--);
 	else
 		write_memory(0x100 | reg.s--, group_status_flags());
-	if (interrupt_vector) // when reset??
+	if (interrupt_vector) // when BRK it should be true as well -> unimplemented
 		flag.i = true;
 }
 
@@ -498,7 +525,6 @@ static void pull_status(void) {
 static void load_interrupt_vector_lo(void) {
 	puts(__FUNCTION__);
 	transient.address_lo = read_memory(interrupt_vector);
-	flag.b = true;
 }
 
 static void load_interrupt_vector_hi(void) {
