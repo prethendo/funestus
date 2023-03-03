@@ -3,9 +3,8 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include "debug.h"
-
-extern void ppu_write(int ppu_register, uint8_t data);
-extern uint8_t ppu_read(int ppu_register);
+#include "loader.h"
+#include "ppu.h"
 
 static struct {
 	uint8_t a;
@@ -50,7 +49,6 @@ static enum {
 } interrupt_vector = RESET;
 
 static uint8_t ram[0x800]; // 2k
-extern uint8_t *prg;
 
 static uint8_t read_memory(uint16_t address) {
 	if (address > 0x7FFF) {

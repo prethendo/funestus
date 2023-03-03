@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "loader.h"
+#include "core.h"
+#include "cpu.h"
 
 static int pixel = 0;
 static int scanline = 0;
@@ -10,10 +13,6 @@ static uint8_t frame_buffer[256 * 240];
 
 static enum { FIRST, SECOND } write_order;
 static uint16_t ppu_address;
-
-extern uint8_t *chr; // pattern tables
-extern void cpu_interrupt(void);
-extern void display_frame_buffer(uint8_t const *internal_frame_buffer);
 
 /* https://www.nesdev.org/wiki/PPU_pattern_tables
 DCBA98 76543210

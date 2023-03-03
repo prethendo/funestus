@@ -2,10 +2,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "SDL2/SDL.h"
-
-extern void cpu_exec(void);
-extern void ppu_exec(void);
-extern bool load_rom(char const *file_name);
+#include "loader.h"
+#include "cpu.h"
+#include "ppu.h"
 
 static uint32_t FRAME_BUFFER_READY; // SDL2 event
 
